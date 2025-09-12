@@ -49,8 +49,8 @@ ALR_loss_KL = rep(0, 11)
 mean_loss_KL = 0
 for (r in 1:11) {
   for (i in 1:94) {
-    RFM_loss_KL[r] = RFM_loss_KL[r] + KL_div(RFM_preds[i,,r], x_CA_train[i,])
-    ALR_loss_KL[r] = ALR_loss_KL[r] + KL_div(ALR_preds[i,,r], x_CA_train[i,])
+    RFM_loss_KL[r] = RFM_loss_KL[r] + KL_div(x_CA_train[i,], RFM_preds[i,,r])
+    ALR_loss_KL[r] = ALR_loss_KL[r] + KL_div(x_CA_train[i,], ALR_preds[i,,r])
     if (r == 1) {
       mean_loss_KL = mean_loss_KL + KL_div(mean_Euc, x_CA_train[i,])
     }
