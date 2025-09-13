@@ -222,6 +222,64 @@ q_index = function (qs, j, type = "ambient") {
   return (res)
 }
 
+#' estimate the linear factor model for the (product of spheres)
+#' 
+lfm_sphere = function (x, r, h = 6) {
+  d = length(x)
+  n = dim(x[[1]])[1]
+  qs = rep(NA, d)
+  for (j in 1:d) {
+    qs[j] = dim(x[[j]])[2]
+  }
+  
+  # flatten the list
+  x_train = NULL
+  for (j in 1:d) {
+    x_train = cbind(x_train, x[[j]])
+  }
+  
+  # estimate the factor model
+  model = LYB_fm(x_train, r = r, h = h)
+  
+  return (list("A" = model$V, "f_hat" = model$f_hat, "factor_model" = model,
+               "r_hat" = model$r_hat))
+}
+
+#' predict from the lfm_sphere output
+#' the predictions live on the sphere
+#' 
+predict_lfm = function (x_test, model) {
+  d = length(x_test)
+  n = dim(x_test[[1]])[1]
+  qs = rep(0, d)
+  for (i in 1:d) {
+    qs[i] = dim(x_test[[i]])[2]
+  }
+  
+  V = model$A
+  z_mean = model$factor_model$mean
+  if (is.vector(V)) {
+    r = 1
+  } else {
+    r = dim(V)[2]
+  }
+  
+  # flatten data
+  x_test_flat = NULL
+  for (i in 1:d) {
+    x_test_flat = cbind(x_test_flat, x_test[[i]])
+  }
+  
+  # make predictions
+  z_hat = predict_fm(V, z_mean, x_test_flat)
+  x_hat = vector("list", d)
+  for (i in 1:d) {
+    x_hat[[i]] = z_hat[,q_index(qs, i, "ambient")]
+  }
+  
+  return (x_hat)
+}
+
 #' estimate the RFM for the (product of spheres)
 #' 
 #' @param x a list of (n by q_j) arrays, j = 1,2,...,d
@@ -313,81 +371,94 @@ predict_rfm = function (x_test, model) {
   return (x_hat)
 }
 
-#' computes ALR transformation for a compositional time series
+#' computes Log Ratio transformation for compositional data
 #' 
 #' @param x (n by q) matrix
-#' @param g index for the reference group
+#' @param g index for the reference group (if "alr" is used)
+#' @param type type of transformations ("alr", "clr", "ilr")
+#' @param inv whether to compute the inverse transformation. Default is FALSE
+#' @param lr_obj log ratio object for meta data, only needed for inverse transforms
 #' 
-alr = function (x, g) {
+LR_trans = function (x, type = "alr", inv = FALSE, g = NULL, lr_obj = NULL) {
   n = nrow(x)
   q = ncol(x)
   
-  res = matrix(0, nrow = n, ncol = q - 1)
-  counter = 1
-  for (i in 1:q) {
-    if (i == g) {
-      next
+  if (inv == FALSE) {
+    if (type == "alr") {
+      lr_obj = alr(acomp(x), ivar = g)
+    } else if (type == "clr") {
+      lr_obj = clr(acomp(x))
+    } else if (type == "ilr") {
+      lr_obj = ilr(acomp(x))
     } else {
-      res[,counter] = log(x[,i] / x[,g])
-      counter = counter + 1
+      stop("LR_trans: transformation type not supported")
     }
-  }
-  
-  return (res)
-}
-
-#' computes inverse alr transformation
-#' 
-#' @param z (n by (q - 1)) matrix
-#' @param g index for the reference group
-#' 
-inv_alr = function (z, g) {
-  z = exp(z)
-  q_minus = ncol(z)
-  if (g == 1) {
-    res = cbind(1, z)
-  } else if (g == q_minus + 1) {
-    res = cbind(z, 1)
+    
+    lr_clean = matrix(as.numeric(lr_obj), nrow = n, ncol = q - 1)
+    
+    return (list("x" = lr_clean, "x.lr.obj" = lr_obj))
   } else {
-    res = cbind(z[,1:(g - 1)], 1, z[g:q_minus])
+    if (type == "alr") {
+      inv_obj = alrInv(x, orig = lr_obj)
+    } else if (type == "clr") {
+      inv_obj = clrInv(x, orig = lr_obj)
+    } else if (type == "ilr") {
+      inv_obj = ilrInv(x, orig = lr_obj)
+    } else {
+      stop("LR_trans: transformation type not supported")
+    }
+    
+    lr_clean = matrix(as.numeric(inv_obj), nrow = n, ncol = q + 1)
+    
+    return (list("x" = lr_clean, "x.lr.obj" = inv_obj))
   }
-  
-  res = res / rowSums(res)
-  
-  return (res)
 }
 
-#' estimate the factor model after additive log ratio transformation
+#' estimate the factor model after log ratio transformations
 #' 
 #' @param x a list of (n by q_j) arrays, j = 1,2,...,d
 #' @param r number of factors
 #' @param h lags used in factor estimation
+#' @param type type of log ratio transformation ("alr", "clr", "ilr")
 #' @param reference_group a vector of indices (for each j) which are used as the 
-#'                        reference group in log transformation
-alr_fm = function (x, r, h = 6, reference_group = NULL) {
+#'                        reference group in additive log ratio transformation
+#'                        
+logR_fm = function (x, r, h = 6, type = "alr", reference_group = NULL) {
   d = length(x)
   n = dim(x[[1]])[1]
   qs = rep(NA, d)
   for (i in 1:d) {
-    qs[i] = dim(x[[1]])[2]
+    qs[i] = dim(x[[i]])[2]
   }
-  if (!is.null(reference_group)) {
-    ref_g = reference_group
-  } else {
-    ref_g = qs # last group serves as reference in each composition
+  if (type == "alr") {
+    if (is.null(reference_group)) {
+      ref_g = qs
+    } else {
+      ref_g = reference_group
+    } 
   }
   
-  x_alr = NULL
+  x_lr = NULL
+  x_lr_obj = vector("list", length = d)
   for (i in 1:d) {
-    x_alr = cbind(x_alr, alr(x[[i]], g = ref_g[i]))
+    temp = LR_trans(x[[i]], type = type, g = ref_g[i])
+    x_lr = cbind(x_lr, temp$x)
+    x_lr_obj = temp$x.lr.obj
   }
   
-  model = LYB_fm(x_alr, r = r, h = h)
+  model = LYB_fm(x_lr, r = r, h = h)
   
-  return (list("A" = model$V, "f_hat" = model$f_hat, "x" = x_alr,
-               "factor_model" = model, "r_hat" = model$r_hat,
-               "ref_g" = ref_g))
-} 
+  return (list("A" = model$V, "f_hat" = model$f_hat, "x" = x_lr,
+               "x.lr.obj" = x_lr_obj, "factor_model" = model,
+               "r_hat" = model$r_hat, "ref_g" = ref_g))
+  
+}
+
+#' predict from an logR_fm output
+#' 
+predict_logR = function (x_test, model) {
+  
+}
 
 #' predict from an alr_fm output
 #' 
@@ -419,6 +490,8 @@ predict_alr = function (x_test, model) {
 }
 
 #' compute the KL divergence
+#' @param p reference distribution
+#' @param q candidate distribution
 #' 
 KL_div = function (p, q) {
   if (abs(sum(p) - 1) > 1e-10 || abs(sum(q) - 1) > 1e-10) {
@@ -451,3 +524,89 @@ comp_barplot <- function(X, years = NULL, col = NULL, legend = TRUE, ...) {
   bp <- do.call(barplot, c(bar_args, list(...)))
   invisible(bp)
 }
+
+
+
+
+### Below codes are defunct
+#' computes ALR transformation for a compositional time series
+#' 
+#' @param x (n by q) matrix
+#' @param g index for the reference group
+#' 
+# alr = function (x, g) {
+#   n = nrow(x)
+#   q = ncol(x)
+#   
+#   res = matrix(0, nrow = n, ncol = q - 1)
+#   counter = 1
+#   for (i in 1:q) {
+#     if (i == g) {
+#       next
+#     } else {
+#       res[,counter] = log(x[,i] / x[,g])
+#       counter = counter + 1
+#     }
+#   }
+#   
+#   return (res)
+# }
+
+#' computes inverse alr transformation
+#' 
+#' @param z (n by (q - 1)) matrix
+#' @param g index for the reference group
+#' 
+# inv_alr = function (z, g) {
+#   z = exp(z)
+#   q_minus = ncol(z)
+#   if (g == 1) {
+#     res = cbind(1, z)
+#   } else if (g == q_minus + 1) {
+#     res = cbind(z, 1)
+#   } else {
+#     res = cbind(z[,1:(g - 1)], 1, z[g:q_minus])
+#   }
+#   
+#   res = res / rowSums(res)
+#   
+#   return (res)
+# }
+
+#' estimate the factor model after log ratio transformation
+#' 
+#' @param x a list of (n by q_j) arrays, j = 1,2,...,d
+#' @param r number of factors
+#' @param h lags used in factor estimation
+#' @param reference_group a vector of indices (for each j) which are used as the 
+#'                        reference group in log transformation
+# alr_fm = function (x, r, h = 6, type = "alr", reference_group = NULL) {
+#   d = length(x)
+#   n = dim(x[[1]])[1]
+#   qs = rep(NA, d)
+#   for (i in 1:d) {
+#     qs[i] = dim(x[[1]])[2]
+#   }
+#   if (!is.null(reference_group)) {
+#     ref_g = reference_group
+#   } else {
+#     ref_g = qs # last group serves as reference in each composition
+#   }
+#   
+#   x_alr = NULL
+#   for (i in 1:d) {
+#     x_alr = cbind(x_alr, alr(x[[i]], g = ref_g[i]))
+#   }
+#   
+#   model = LYB_fm(x_alr, r = r, h = h)
+#   
+#   return (list("A" = model$V, "f_hat" = model$f_hat, "x" = x_alr,
+#                "factor_model" = model, "r_hat" = model$r_hat,
+#                "ref_g" = ref_g))
+# } 
+
+
+
+
+
+

@@ -1,3 +1,5 @@
+source("util.R")
+
 temp_CA = station_data_get(list("CA" = 7))
 x_CA = yearly_obs(rowSums(temp_CA$dta))
 x_CA = x_CA / rowSums(x_CA)
@@ -9,6 +11,7 @@ comp_barplot(x_CA, years = 1895:2024)
 x_CA_train = x_CA[1:94,]
 x_CA_test = x_CA[95:130,]
 
+# train factor models
 model_RFM = rfm_sphere(list(sqrt(x_CA_train)), r = 10, h = 6)
 
 par(mfrow = c(1, 2))
@@ -23,6 +26,18 @@ plot(model_ALR$f_hat[,1], type = "l", main = "ALR 1st factor",
 plot(model_ALR$f_hat[,2], type = "l", main = "ALR 2nd factor", 
      xlab = "", ylab = "")
 
+model_sph = lfm_sphere(list(sqrt(x_CA_train)), r = 10, h = 6)
+plot(model_sph$f_hat[,1], type = "l", main = "LFM (sphere) for sphere 1st factor", 
+     xlab = "", ylab = "")
+plot(model_sph$f_hat[,2], type = "l", main = "LFM (sphere) for sphere 2nd factor", 
+     xlab = "", ylab = "")
+
+model_sph = lfm_sphere(list(x_CA_train), r = 10, h = 6)
+plot(model_sph$f_hat[,1], type = "l", main = "LFM (raw) for sphere 1st factor", 
+     xlab = "", ylab = "")
+plot(model_sph$f_hat[,2], type = "l", main = "LFM (raw) for sphere 2nd factor", 
+     xlab = "", ylab = "")
+
 # In-sample fit
 mean_Euc = colMeans(x_CA_train)
 
@@ -33,6 +48,24 @@ for (r in 1:11) {
   RFM_preds[,,r] = (predict_rfm(list(sqrt(x_CA_train)), model_RFM)[[1]])^2
   
   RFM_loss[r] = norm(x_CA_train - RFM_preds[,,r], "F")^2
+}
+
+Sph_preds = array(0, dim = c(94, 12, 11))
+Sph_loss = rep(0, 11)
+for (r in 1:11) {
+  model_Sph = lfm_sphere(list(sqrt(x_CA_train)), r = r, h = 6)
+  Sph_preds[,,r] = (predict_lfm(list(sqrt(x_CA_train)), model_Sph)[[1]])^2
+  
+  Sph_loss[r] = norm(x_CA_train - Sph_preds[,,r], "F")^2
+}
+
+Raw_preds = array(0, dim = c(94, 12, 11))
+Raw_loss = rep(0, 11)
+for (r in 1:11) {
+  model_Raw = lfm_sphere(list(x_CA_train), r = r, h = 6)
+  Raw_preds[,,r] = (predict_lfm(list(x_CA_train), model_Raw)[[1]])
+  
+  Raw_loss[r] = norm(x_CA_train - Raw_preds[,,r], "F")
 }
 
 ALR_preds = array(0, dim = c(94, 12, 11))
@@ -46,11 +79,15 @@ for (r in 1:11) {
 
 RFM_loss_KL = rep(0, 11)
 ALR_loss_KL = rep(0, 11)
+Sph_loss_KL = rep(0, 11)
+Raw_loss_KL = rep(0, 11)
 mean_loss_KL = 0
 for (r in 1:11) {
   for (i in 1:94) {
     RFM_loss_KL[r] = RFM_loss_KL[r] + KL_div(x_CA_train[i,], RFM_preds[i,,r])
     ALR_loss_KL[r] = ALR_loss_KL[r] + KL_div(x_CA_train[i,], ALR_preds[i,,r])
+    Sph_loss_KL[r] = Sph_loss_KL[r] + KL_div(x_CA_train[i,], Sph_preds[i,,r] / sum(Sph_preds[i,,r]))
+    Raw_loss_KL[r] = Raw_loss_KL[r] + KL_div(x_CA_train[i,], Raw_preds[i,,r]) # / sum(Sph_preds[i,,r]))
     if (r == 1) {
       mean_loss_KL = mean_loss_KL + KL_div(mean_Euc, x_CA_train[i,])
     }
@@ -58,18 +95,22 @@ for (r in 1:11) {
 }
 
 par(mfrow = c(1, 2))
-plot(sqrt(RFM_loss / 94), type = "l", col = "steelblue", xlab = "number of factors",
+plot(sqrt(Sph_loss / 94), type = "l", col = "green3", xlab = "number of factors",
      ylab = "RMSE", main = "In-sample prediction errors",
-     pch = 19, ylim = c(0, 0.2))
-points(sqrt(RFM_loss / 94), col = "steelblue", pch = 19)
+     pch = 19, ylim = c(0, 0.2), lty = 3)
+points(sqrt(Sph_loss / 94), col = "green3", pch = 19)
 lines(sqrt(ALR_loss / 94), col = "firebrick", lty = 2)
 points(sqrt(ALR_loss / 94), col = "firebrick", pch = 19)
-legend("topright", col = c("steelblue", "firebrick"),
-       lty = c(1, 2), legend = c("Sph", "ALR"))
+lines(sqrt(RFM_loss / 94), col = "steelblue", lty = 1)
+points(sqrt(RFM_loss / 94), col = "steelblue", pch = 19)
+legend("topright", col = c("steelblue", "firebrick", "green3"),
+       lty = c(1, 2, 3), legend = c("RFM", "ALR", "Linear"))
 
-plot(RFM_loss_KL / 94, type = "l", col = "steelblue", xlab = "number of factors",
+plot(Sph_loss_KL / 94, type = "l", col = "green3", xlab = "number of factors",
      ylab = "KL divergence", main = "In-sample prediction errors",
-     pch = 19, ylim = c(0, 0.2))
+     pch = 19, ylim = c(0, 0.2), lty = 3)
+points(Sph_loss_KL / 94, col = "green3", pch = 19)
+lines(RFM_loss_KL / 94, col = "steelblue", lty = 1)
 points(RFM_loss_KL / 94, col = "steelblue", pch = 19)
 lines(ALR_loss_KL / 94, col = "firebrick", lty = 2)
 points(ALR_loss_KL / 94, col = "firebrick", pch = 19)
@@ -78,3 +119,24 @@ points(ALR_loss_KL / 94, col = "firebrick", pch = 19)
 # Prediction
 
 # Factor interpretation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
