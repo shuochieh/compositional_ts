@@ -14,109 +14,270 @@ x_CA_test = x_CA[95:130,]
 # train factor models
 model_RFM = rfm_sphere(list(sqrt(x_CA_train)), r = 10, h = 6)
 
-par(mfrow = c(1, 2))
-plot(model_RFM$f_hat[,1], type = "l", main = "RFM 1st factor", 
-     xlab = "", ylab = "")
-plot(model_RFM$f_hat[,2], type = "l", main = "RFM 2nd factor", 
-     xlab = "", ylab = "")
+model_ALR = logR_fm(list(x_CA_train), r = 10, h = 6, type = "alr")
+model_ILR = logR_fm(list(x_CA_train), r = 10, h = 6, type = "ilr")
 
-model_ALR = alr_fm(list(x_CA_train), r = 10, h = 6)
-plot(model_ALR$f_hat[,1], type = "l", main = "ALR 1st factor", 
-     xlab = "", ylab = "")
-plot(model_ALR$f_hat[,2], type = "l", main = "ALR 2nd factor", 
-     xlab = "", ylab = "")
+model_sph_sq = lfm_sphere(list(sqrt(x_CA_train)), r = 10, h = 6)
+model_sph_raw = lfm_sphere(list(x_CA_train), r = 10, h = 6)
 
-model_sph = lfm_sphere(list(sqrt(x_CA_train)), r = 10, h = 6)
-plot(model_sph$f_hat[,1], type = "l", main = "LFM (sphere) for sphere 1st factor", 
-     xlab = "", ylab = "")
-plot(model_sph$f_hat[,2], type = "l", main = "LFM (sphere) for sphere 2nd factor", 
-     xlab = "", ylab = "")
+# par(mfrow = c(1, 2))
+# plot(model_RFM$f_hat[,1], type = "l", main = "RFM 1st factor", 
+#      xlab = "", ylab = "")
+# plot(model_RFM$f_hat[,2], type = "l", main = "RFM 2nd factor", 
+#      xlab = "", ylab = "")
 
-model_sph = lfm_sphere(list(x_CA_train), r = 10, h = 6)
-plot(model_sph$f_hat[,1], type = "l", main = "LFM (raw) for sphere 1st factor", 
-     xlab = "", ylab = "")
-plot(model_sph$f_hat[,2], type = "l", main = "LFM (raw) for sphere 2nd factor", 
-     xlab = "", ylab = "")
 
 # In-sample fit
-mean_Euc = colMeans(x_CA_train)
+n_test = 94
 
-RFM_preds = array(0, dim = c(94, 12, 11))
-RFM_loss = rep(0, 11)
-for (r in 1:11) {
+RFM_preds = array(0, dim = c(n_test, 12, 10))
+RFM_loss = rep(0, 10)
+RFM_KL = rep(0, 10)
+for (r in 1:10) {
   model_RFM = rfm_sphere(list(sqrt(x_CA_train)), r = r, h = 6)
   RFM_preds[,,r] = (predict_rfm(list(sqrt(x_CA_train)), model_RFM)[[1]])^2
+  RFM_loss[r] = sqrt((norm(x_CA_train - RFM_preds[,,r], "F")^2) / n_test)
   
-  RFM_loss[r] = norm(x_CA_train - RFM_preds[,,r], "F")^2
+  for (i in 1:n_test) {
+    RFM_KL[r] = RFM_KL[r] + KL_div(x_CA_train[i,], RFM_preds[i,,r])
+  }
 }
 
-Sph_preds = array(0, dim = c(94, 12, 11))
-Sph_loss = rep(0, 11)
-for (r in 1:11) {
-  model_Sph = lfm_sphere(list(sqrt(x_CA_train)), r = r, h = 6)
-  Sph_preds[,,r] = (predict_lfm(list(sqrt(x_CA_train)), model_Sph)[[1]])^2
+ALR_preds = array(0, dim = c(n_test, 12, 10))
+ALR_loss = rep(0, 10)
+ALR_KL = rep(0, 10)
+for (r in 1:10) {
+  model_ALR = logR_fm(list(x_CA_train), r = r, h = 6, type = "alr")
+  ALR_preds[,,r] = predict_logR(list(x_CA_train), model_ALR)$pred[[1]]
+  ALR_loss[r] = sqrt((norm(x_CA_train - ALR_preds[,,r], "F")^2) / n_test)
   
-  Sph_loss[r] = norm(x_CA_train - Sph_preds[,,r], "F")^2
+  for (i in 1:n_test) {
+    ALR_KL[r] = ALR_KL[r] + KL_div(x_CA_train[i,], ALR_preds[i,,r])
+  }
 }
 
-Raw_preds = array(0, dim = c(94, 12, 11))
-Raw_loss = rep(0, 11)
-for (r in 1:11) {
-  model_Raw = lfm_sphere(list(x_CA_train), r = r, h = 6)
-  Raw_preds[,,r] = (predict_lfm(list(x_CA_train), model_Raw)[[1]])
+ILR_preds = array(0, dim = c(n_test, 12, 10))
+ILR_loss = rep(0, 10)
+ILR_KL = rep(0, 10)
+for (r in 1:10) {
+  model_ILR = logR_fm(list(x_CA_train), r = r, h = 6, type = "ilr")
+  ILR_preds[,,r] = predict_logR(list(x_CA_train), model_ILR)$pred[[1]]
+  ILR_loss[r] = sqrt((norm(x_CA_train - ILR_preds[,,r], "F")^2) / n_test)
   
-  Raw_loss[r] = norm(x_CA_train - Raw_preds[,,r], "F")
+  for (i in 1:n_test) {
+    ILR_KL[r] = ILR_KL[r] + KL_div(x_CA_train[i,], ILR_preds[i,,r])
+  }
 }
 
-ALR_preds = array(0, dim = c(94, 12, 11))
-ALR_loss = rep(0, 11)
-for (r in 1:11) {
-  model_ALR = alr_fm(list(x_CA_train), r = r, h = 6)
-  ALR_preds[,,r] = predict_alr(list(x_CA_train), model_ALR)[[1]]
+Lin_sph_preds = array(0, dim = c(n_test, 12, 10))
+Lin_sph_loss = rep(0, 10)
+Lin_sph_KL = rep(0, 10)
+for (r in 1:10) {
+  model_linsph = lfm_sphere(list(sqrt(x_CA_train)), r = r, h = 6)
+  Lin_sph_preds[,,r] = (predict_lfm(list(sqrt(x_CA_train)), model_linsph)[[1]])^2
+  Lin_sph_loss[r] = sqrt((norm(x_CA_train - Lin_sph_preds[,,r], "F")^2) / n_test)
   
-  ALR_loss[r] = norm(x_CA_train - ALR_preds[,,r], "F")^2
+  for (i in 1:n_test) {
+    Lin_sph_KL[r] = Lin_sph_KL[r] + KL_div(x_CA_train[i,], 
+                                           Lin_sph_preds[i,,r] / sum(Lin_sph_preds[i,,r]))
+  }
 }
 
-RFM_loss_KL = rep(0, 11)
-ALR_loss_KL = rep(0, 11)
-Sph_loss_KL = rep(0, 11)
-Raw_loss_KL = rep(0, 11)
-mean_loss_KL = 0
-for (r in 1:11) {
-  for (i in 1:94) {
-    RFM_loss_KL[r] = RFM_loss_KL[r] + KL_div(x_CA_train[i,], RFM_preds[i,,r])
-    ALR_loss_KL[r] = ALR_loss_KL[r] + KL_div(x_CA_train[i,], ALR_preds[i,,r])
-    Sph_loss_KL[r] = Sph_loss_KL[r] + KL_div(x_CA_train[i,], Sph_preds[i,,r] / sum(Sph_preds[i,,r]))
-    Raw_loss_KL[r] = Raw_loss_KL[r] + KL_div(x_CA_train[i,], Raw_preds[i,,r]) # / sum(Sph_preds[i,,r]))
-    if (r == 1) {
-      mean_loss_KL = mean_loss_KL + KL_div(mean_Euc, x_CA_train[i,])
-    }
+Lin_raw_preds = array(0, dim = c(n_test, 12, 10))
+Lin_raw_loss = rep(0, 10)
+Lin_raw_KL = rep(0, 10)
+for (r in 1:10) {
+  model_linraw = lfm_sphere(list(x_CA_train), r = r, h = 6)
+  Lin_raw_preds[,,r] = (predict_lfm(list(x_CA_train), model_linraw)[[1]])
+  Lin_raw_loss[r] = sqrt((norm(x_CA_train - Lin_raw_preds[,,r], "F")^2) / n_test)
+  
+  cat("r = ", r, "\n")
+  for (i in 1:n_test) {
+    cat(" i = ", i,  round(KL_div(x_CA_train[i,], Lin_raw_preds[i,,r] / sum(Lin_raw_preds[i,,r])), 3), 
+        "\n")
+    Lin_raw_KL[r] = Lin_raw_KL[r] + KL_div(x_CA_train[i,], 
+                                           Lin_raw_preds[i,,r] / sum(Lin_raw_preds[i,,r]))
+  }
+}
+
+
+par(mfrow = c(1, 2))
+
+ylim = range(c(RFM_loss, ALR_loss, ILR_loss, Lin_sph_loss, Lin_raw_loss))
+ylim[1] = 0
+plot(RFM_loss, col = "steelblue", type = "l", xlab = "number of factors",
+     ylab = "RMSE", main = "In-sample prediction errors", ylim = ylim, lwd = 2)
+points(RFM_loss, col = "steelblue", pch = 19)
+
+lines(ALR_loss, col = "red", lty = 2)
+points(ALR_loss, col = "red", pch = 18)
+lines(ILR_loss, col = "red4", lty = 2)
+points(ILR_loss, col = "red4", pch = 17)
+
+lines(Lin_sph_loss, col = "green", lty = 3)
+points(Lin_sph_loss, col = "green", pch = 15)
+lines(Lin_raw_loss, col = "green4", lty = 3)
+points(Lin_raw_loss, col = "green4", pch = 14)
+
+ylim = range(c(RFM_KL, ALR_KL, ILR_KL, Lin_sph_KL))
+ylim[1] = 0
+plot(RFM_KL, col = "steelblue", type = "l", xlab = "number of factors",
+     ylab = "KL divergence", main = "In-sample prediction errors", ylim = ylim, lwd = 2)
+points(RFM_KL, col = "steelblue", pch = 19)
+
+lines(ALR_KL, col = "red", lty = 2)
+points(ALR_KL, col = "red", pch = 18)
+lines(ILR_KL, col = "red4", lty = 2)
+points(ILR_KL, col = "red4", pch = 17)
+
+lines(Lin_sph_KL, col = "green", lty = 3)
+points(Lin_sph_KL, col = "green", pch = 15)
+# lines(Lin_raw_loss, col = "green4", lty = 3)
+# points(Lin_raw_loss, col = "green4", pch = 14)
+legend("topright", 
+       lty = c(1, 2, 2, 3, 3), pch = c(19, 18, 17, 15, 15),
+       legend = c("RFM", "ALR", "ILR", "Lin-Sph", "Lin-Raw"),
+       col = c("steelblue", "red", "red4", "green", "green4"))
+
+
+# Pseudo-prediction
+n_test = 36
+
+RFM_preds = array(0, dim = c(n_test, 12, 10))
+RFM_loss = rep(0, 10)
+RFM_KL = rep(0, 10)
+for (r in 1:10) {
+  model_RFM = rfm_sphere(list(sqrt(x_CA_train)), r = r, h = 6)
+  
+  RFM_preds[,,r] = (predict_rfm(list(sqrt(x_CA_test)), model_RFM)[[1]])^2
+  RFM_loss[r] = sqrt((norm(x_CA_test - RFM_preds[,,r], "F")^2) / n_test)
+  for (i in 1:n_test) {
+    RFM_KL[r] = RFM_KL[r] + KL_div(x_CA_test[i,], RFM_preds[i,,r])
+  }
+}
+
+ALR_preds = array(0, dim = c(n_test, 12, 10))
+ALR_loss = rep(0, 10)
+ALR_KL = rep(0, 10)
+for (r in 1:10) {
+  model_ALR = logR_fm(list(x_CA_train), r = r, h = 6, type = "alr")
+  
+  ALR_preds[,,r] = predict_logR(list(x_CA_test), model_ALR)$pred[[1]]
+  ALR_loss[r] = sqrt((norm(x_CA_test - ALR_preds[,,r], "F")^2) / n_test)
+  for (i in 1:n_test) {
+    ALR_KL[r] = ALR_KL[r] + KL_div(x_CA_test[i,], ALR_preds[i,,r])
+  }
+}
+
+ILR_preds = array(0, dim = c(n_test, 12, 10))
+ILR_loss = rep(0, 10)
+ILR_KL = rep(0, 10)
+for (r in 1:10) {
+  model_ILR = logR_fm(list(x_CA_train), r = r, h = 6, type = "ilr")
+  
+  ILR_preds[,,r] = predict_logR(list(x_CA_test), model_ILR)$pred[[1]]
+  ILR_loss[r] = sqrt((norm(x_CA_test - ILR_preds[,,r], "F")^2) / n_test)
+  for (i in 1:n_test) {
+    ILR_KL[r] = ILR_KL[r] + KL_div(x_CA_test[i,], ILR_preds[i,,r])
+  }
+}
+
+Lin_sph_preds = array(0, dim = c(n_test, 12, 10))
+Lin_sph_loss = rep(0, 10)
+Lin_sph_KL = rep(0, 10)
+for (r in 1:10) {
+  model_linsph = lfm_sphere(list(sqrt(x_CA_train)), r = r, h = 6)
+  
+  Lin_sph_preds[,,r] = (predict_lfm(list(sqrt(x_CA_test)), model_linsph)[[1]])^2
+  Lin_sph_loss[r] = sqrt((norm(x_CA_test - Lin_sph_preds[,,r], "F")^2) / n_test)
+  for (i in 1:n_test) {
+    Lin_sph_KL[r] = Lin_sph_KL[r] + KL_div(x_CA_test[i,], 
+                                           Lin_sph_preds[i,,r] / sum(Lin_sph_preds[i,,r]))
+  }
+}
+
+Lin_raw_preds = array(0, dim = c(n_test, 12, 10))
+Lin_raw_loss = rep(0, 10)
+Lin_raw_KL = rep(0, 10)
+for (r in 1:10) {
+  model_linraw = lfm_sphere(list(x_CA_train), r = r, h = 6)
+  
+  Lin_raw_preds[,,r] = (predict_lfm(list(x_CA_test), model_linraw)[[1]])
+  Lin_raw_loss[r] = sqrt((norm(x_CA_test - Lin_raw_preds[,,r], "F")^2) / n_test)
+  for (i in 1:n_test) {
+    Lin_raw_KL[r] = Lin_raw_KL[r] + KL_div(x_CA_test[i,], 
+                                           Lin_raw_preds[i,,r] / sum(Lin_raw_preds[i,,r]))
   }
 }
 
 par(mfrow = c(1, 2))
-plot(sqrt(Sph_loss / 94), type = "l", col = "green3", xlab = "number of factors",
-     ylab = "RMSE", main = "In-sample prediction errors",
-     pch = 19, ylim = c(0, 0.2), lty = 3)
-points(sqrt(Sph_loss / 94), col = "green3", pch = 19)
-lines(sqrt(ALR_loss / 94), col = "firebrick", lty = 2)
-points(sqrt(ALR_loss / 94), col = "firebrick", pch = 19)
-lines(sqrt(RFM_loss / 94), col = "steelblue", lty = 1)
-points(sqrt(RFM_loss / 94), col = "steelblue", pch = 19)
-legend("topright", col = c("steelblue", "firebrick", "green3"),
-       lty = c(1, 2, 3), legend = c("RFM", "ALR", "Linear"))
 
-plot(Sph_loss_KL / 94, type = "l", col = "green3", xlab = "number of factors",
-     ylab = "KL divergence", main = "In-sample prediction errors",
-     pch = 19, ylim = c(0, 0.2), lty = 3)
-points(Sph_loss_KL / 94, col = "green3", pch = 19)
-lines(RFM_loss_KL / 94, col = "steelblue", lty = 1)
-points(RFM_loss_KL / 94, col = "steelblue", pch = 19)
-lines(ALR_loss_KL / 94, col = "firebrick", lty = 2)
-points(ALR_loss_KL / 94, col = "firebrick", pch = 19)
+ylim = range(c(RFM_loss, ALR_loss, ILR_loss, Lin_sph_loss, Lin_raw_loss))
+ylim[1] = 0
+plot(RFM_loss, col = "steelblue", type = "l", xlab = "number of factors",
+     ylab = "RMSE", main = "Pseudo-prediction errors", ylim = ylim, lwd = 2)
+points(RFM_loss, col = "steelblue", pch = 19)
+
+lines(ALR_loss, col = "red", lty = 2)
+points(ALR_loss, col = "red", pch = 18)
+lines(ILR_loss, col = "red4", lty = 2)
+points(ILR_loss, col = "red4", pch = 17)
+
+lines(Lin_sph_loss, col = "green", lty = 3)
+points(Lin_sph_loss, col = "green", pch = 15)
+lines(Lin_raw_loss, col = "green4", lty = 3)
+points(Lin_raw_loss, col = "green4", pch = 14)
+
+ylim = range(c(RFM_KL, ALR_KL, ILR_KL, Lin_sph_KL))
+ylim[1] = 0
+plot(RFM_KL, col = "steelblue", type = "l", xlab = "number of factors",
+     ylab = "KL divergence", main = "Pseudo-prediction errors", ylim = ylim, lwd = 2)
+points(RFM_KL, col = "steelblue", pch = 19)
+
+lines(ALR_KL, col = "red", lty = 2)
+points(ALR_KL, col = "red", pch = 18)
+lines(ILR_KL, col = "red4", lty = 2)
+points(ILR_KL, col = "red4", pch = 17)
+
+lines(Lin_sph_KL, col = "green", lty = 3)
+points(Lin_sph_KL, col = "green", pch = 15)
+# lines(Lin_raw_loss, col = "green4", lty = 3)
+# points(Lin_raw_loss, col = "green4", pch = 14)
+legend("topright", 
+       lty = c(1, 2, 2, 3, 3), pch = c(19, 18, 17, 15, 14),
+       legend = c("RFM", "ALR", "ILR", "Lin-Sph", "Lin-Raw"),
+       col = c("steelblue", "red", "red4", "green", "green4"))
 
 
-# Prediction
+
+
+
+
+# Out-of-sample prediction
+# Pseudo-prediction
+n_test = 36
+
+RFM_preds = array(0, dim = c(n_test, 12, 10))
+RFM_loss = rep(0, 10)
+RFM_KL = rep(0, 10)
+for (r in 1:10) {
+  for (i in 1:n_test) {
+    if (i == 1) {
+      train_data = x_CA_train
+    } else {
+      train_data = rbind(x_CA_train, x_CA_test[(i - 1),])
+    }
+  }
+  model_RFM = rfm_sphere(list(sqrt(train_data)), r = r, h = 6)
+  fac = model_RFM$f_hat
+  alpha_hat = simple_AR(fac)
+  
+  RFM_preds[,,r] = (predict_rfm(list(sqrt(x_CA_test)), model_RFM)[[1]])^2
+  RFM_loss[r] = sqrt((norm(x_CA_test - RFM_preds[,,r], "F")^2) / n_test)
+  for (i in 1:n_test) {
+    RFM_KL[r] = RFM_KL[r] + KL_div(x_CA_test[i,], RFM_preds[i,,r])
+  }
+}
 
 # Factor interpretation
 

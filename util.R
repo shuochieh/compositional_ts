@@ -1,4 +1,5 @@
 library(lubridate)
+library(compositions)
 
 read_precip_data <- function(file) {
   df <- read.csv(file, skip = 3, na.strings = "-99")
@@ -224,6 +225,8 @@ q_index = function (qs, j, type = "ambient") {
 
 #' estimate the linear factor model for the (product of spheres)
 #' 
+#' @param x a list of data taken the square root transform
+#' 
 lfm_sphere = function (x, r, h = 6) {
   d = length(x)
   n = dim(x[[1]])[1]
@@ -284,7 +287,7 @@ predict_lfm = function (x_test, model) {
 #' 
 #' @param x a list of (n by q_j) arrays, j = 1,2,...,d
 #' 
-#' @export
+#' 
 rfm_sphere = function (x, r, h = 6, tau = 0.5, max.iter = 100) {
   d = length(x)
   n = dim(x[[1]])[1]
@@ -436,57 +439,68 @@ logR_fm = function (x, r, h = 6, type = "alr", reference_group = NULL) {
     } else {
       ref_g = reference_group
     } 
+  } else {
+    ref_g = NULL
   }
   
   x_lr = NULL
   x_lr_obj = vector("list", length = d)
   for (i in 1:d) {
-    temp = LR_trans(x[[i]], type = type, g = ref_g[i])
+    if (type == "alr") {
+      temp = LR_trans(x[[i]], type = type, g = ref_g[i])
+    } else {
+      temp = LR_trans(x[[i]], type = type)
+    }
     x_lr = cbind(x_lr, temp$x)
-    x_lr_obj = temp$x.lr.obj
+    x_lr_obj[[i]] = temp$x.lr.obj
   }
   
   model = LYB_fm(x_lr, r = r, h = h)
   
   return (list("A" = model$V, "f_hat" = model$f_hat, "x" = x_lr,
                "x.lr.obj" = x_lr_obj, "factor_model" = model,
-               "r_hat" = model$r_hat, "ref_g" = ref_g))
-  
+               "r_hat" = model$r_hat, "ref_g" = ref_g, "LR_type" = type))
 }
 
 #' predict from an logR_fm output
 #' 
 predict_logR = function (x_test, model) {
-  
-}
-
-#' predict from an alr_fm output
-#' 
-predict_alr = function (x_test, model) {
   d = length(x_test)
   n = dim(x_test[[1]])[1]
   qs = rep(NA, d)
   for (i in 1:d) {
     qs[i] = dim(x_test[[i]])[2]
   }
+  LR_type = model$LR_type
   ref_g = model$ref_g
   V = model$A
   z_mean = model$factor_model$mean
   
-  x_alr = NULL
+  x_lr = NULL
+  x_lr_obj = vector("list", length = d)
   for (i in 1:d) {
-    x_alr = cbind(x_alr, alr(x_test[[i]], g = ref_g[[i]]))
+    if (LR_type == "alr") {
+      temp = LR_trans(x_test[[i]], type = LR_type, g = model$ref_g[i])
+    } else {
+      temp = LR_trans(x_test[[i]], type = LR_type)
+    }
+    x_lr = cbind(x_lr, temp$x)
+    x_lr_obj[[i]] = temp$x.lr.obj
   }
   
-  z_hat = predict_fm(V, z_mean, x_alr)
+  z_hat = predict_fm(V, z_mean, x_lr)
   
-  res = vector("list", d)
+  pred = vector("list", d)
+  pred.lr.obj = vector("list", d)
   for (i in 1:d) {
     temp = z_hat[,q_index(qs, i, "intrinsic")]
-    res[[i]] = inv_alr(temp, ref_g[i])
+    temp = LR_trans(temp, type = LR_type, inv = TRUE, lr_obj = x_lr_obj[[i]])
+    
+    pred[[i]] = temp$x
+    pred.lr.obj[[i]] = temp$x.lr.obj
   }
   
-  return (res)
+  return (list("pred" = pred, "pred.lr.obj" = pred.lr.obj))
 }
 
 #' compute the KL divergence
@@ -525,7 +539,14 @@ comp_barplot <- function(X, years = NULL, col = NULL, legend = TRUE, ...) {
   invisible(bp)
 }
 
-
+simple_AR = function (x) {
+  d = ncol(x)
+  aux = embed(x, 2)
+  A = aux[,1:d]
+  B = aux[,-c(1:d)]
+  
+  return (c(sum(A * B) / sum(B^2)))
+}
 
 
 ### Below codes are defunct
@@ -605,6 +626,36 @@ comp_barplot <- function(X, years = NULL, col = NULL, legend = TRUE, ...) {
 #                "ref_g" = ref_g))
 # } 
 
+#' predict from an alr_fm output
+#' 
+# predict_alr = function (x_test, model) {
+#   d = length(x_test)
+#   n = dim(x_test[[1]])[1]
+#   qs = rep(NA, d)
+#   for (i in 1:d) {
+#     qs[i] = dim(x_test[[i]])[2]
+#   }
+#   ref_g = model$ref_g
+#   V = model$A
+#   z_mean = model$factor_model$mean
+#   
+#   x_alr = NULL
+#   for (i in 1:d) {
+#     x_alr = cbind(x_alr, alr(x_test[[i]], g = ref_g[[i]]))
+#   }
+#   
+#   z_hat = predict_fm(V, z_mean, x_alr)
+#   
+#   res = vector("list", d)
+#   for (i in 1:d) {
+#     temp = z_hat[,q_index(qs, i, "intrinsic")]
+#     res[[i]] = inv_alr(temp, ref_g[i])
+#   }
+#   
+#   
+#   
+#   return (list("pred" = res$x, "pred.lr.obj" = res$x.lr.obj))
+# }
 
 
 
